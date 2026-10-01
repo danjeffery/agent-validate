@@ -218,8 +218,40 @@ test_gitignore_lint_discovery() {
         "$tmpdir" --skip "$md_skip"
     rm "$tmpdir/new.md"
 
+    assert_fail "gitignore: explicit ignored target still checked" \
+        "$tmpdir/ignored" --skip "$md_skip"
+
     git -C "$tmpdir" add -f ignored/bad.md
     assert_fail "gitignore: tracked ignored markdown checked" \
+        "$tmpdir" --skip "$md_skip"
+
+    git -C "$tmpdir" rm -q --cached -- ignored/bad.md
+    mkdir -p "$tmpdir/.github"
+    cp "$FIXTURES/broken-markdown/bad.md" "$tmpdir/.github/bad.md"
+    git -C "$tmpdir" add .github/bad.md
+    assert_pass "gitignore: prior dot-directory Markdown scope preserved" \
+        "$tmpdir" --skip "$md_skip"
+    git -C "$tmpdir" rm -q --cached -- .github/bad.md
+    rm "$tmpdir/.github/bad.md"
+
+    # Give the parent index a gitlink to an initialized nested repository.
+    mkdir -p "$tmpdir/plugins/alpha"
+    git -C "$tmpdir/plugins/alpha" init -q
+    cp "$FIXTURES/broken-markdown/bad.md" \
+        "$tmpdir/plugins/alpha/bad.md"
+    git -C "$tmpdir/plugins/alpha" add bad.md
+    git -C "$tmpdir" update-index --add --cacheinfo \
+        "160000,$(git -C "$REPO_ROOT" rev-parse HEAD),plugins/alpha"
+    assert_fail "gitignore: tracked submodule Markdown checked" \
+        "$tmpdir" --skip "$md_skip"
+
+    git -C "$tmpdir/plugins/alpha" rm -q --cached -- bad.md
+    rm "$tmpdir/plugins/alpha/bad.md"
+    printf 'ignored/\n' > "$tmpdir/plugins/alpha/.gitignore"
+    mkdir -p "$tmpdir/plugins/alpha/ignored"
+    cp "$FIXTURES/broken-markdown/bad.md" \
+        "$tmpdir/plugins/alpha/ignored/noise.md"
+    assert_pass "gitignore: submodule ignore rules honored" \
         "$tmpdir" --skip "$md_skip"
 
     cp "$FIXTURES/broken-markdown/bad.md" "$plain/bad.md"

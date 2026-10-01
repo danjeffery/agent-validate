@@ -212,20 +212,38 @@ errors=0
 
 # Use Git's ignore rules for lint inputs when possible. Tracked files remain
 # included even if a later ignore rule matches them; non-Git targets use find.
+# List files from this repository and its initialized submodules.
+list_git_lint_files() {
+    local repo_dir="$1" prefix="$2" file entry submodule
+
+    while IFS= read -r -d '' file; do
+        case "/$prefix$file" in
+            */node_modules/*|*/.venv/*|*/site-packages/*|*/vendor/*)
+                continue
+                ;;
+        esac
+        if [[ -f "$repo_dir/$file" ]]; then
+            printf './%s%s\0' "$prefix" "$file"
+        fi
+    done < <(git -C "$repo_dir" ls-files -z --cached --others --exclude-standard)
+
+    while IFS= read -r -d '' entry; do
+        case "$entry" in 160000\ *) ;; *) continue ;; esac
+        submodule="${entry#*$'\t'}"
+        if [[ -e "$repo_dir/$submodule/.git" ]]; then
+            list_git_lint_files "$repo_dir/$submodule" "$prefix$submodule/"
+        fi
+    done < <(git -C "$repo_dir" ls-files --stage -z)
+}
+
 list_lint_files() {
     local file
 
-    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-        while IFS= read -r -d '' file; do
-            case "/$file" in
-                */node_modules/*|*/.venv/*|*/site-packages/*|*/vendor/*)
-                    continue
-                    ;;
-            esac
-            if [[ -f "$file" ]]; then
-                printf './%s\0' "$file"
-            fi
-        done < <(git ls-files -z --cached --others --exclude-standard)
+    # An explicitly selected target inside an ignored parent is not
+    # silently skipped merely because the enclosing repo ignores it.
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1 &&
+        ! git check-ignore -q .; then
+        list_git_lint_files . ""
     else
         find -P . -not -path './.git/*' \
             -not -path './node_modules/*' \
@@ -278,7 +296,10 @@ if ! should_skip "markdown"; then
     info "=== Validating Markdown ==="
     markdown_files=()
     while IFS= read -r -d '' f; do
-        case "$f" in *.md) markdown_files+=("$f") ;; esac
+        case "$f" in
+            */.*) continue ;;
+            *.md) markdown_files+=("$f") ;;
+        esac
     done < <(list_lint_files)
     if [[ ${#markdown_files[@]} -gt 0 ]]; then
         printf '%s\0' "${markdown_files[@]}" | xargs -0 npx --yes "markdownlint-cli@${MARKDOWNLINT_VERSION}" \

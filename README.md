@@ -104,11 +104,13 @@ Linter configs are auto-discovered from the target repo. If none exist, bundled 
 
 ## File selection
 
-In a Git worktree, Tier 1 linters check tracked files and untracked
-files not excluded by Git ignore rules. Tracked files remain checked
-even when an ignore rule matches them. In non-Git directories, Tier 1
-scans files directly. Dependency and vendored directories remain
-excluded in both modes.
+In Git worktrees, Tier 1 linters check tracked and unignored
+untracked files, including files in initialized submodules under
+each submodule's ignore rules. Tracked files remain checked even
+when ignored. An explicit target ignored by an enclosing repository
+is scanned directly rather than silently skipped; non-Git targets
+are also scanned directly. Markdown retains its prior dot-path
+exclusion. Dependency and vendored directories remain excluded.
 
 ## Supply chain
 
