@@ -102,6 +102,14 @@ Linter configs are auto-discovered from the target repo. If none exist, bundled 
 - **Auditable**: all tool versions pinned and overridable; GitHub Actions use full SHA pins
 - **System-first**: prefers system-installed `yamllint` and `ruff` before falling back to `uvx`
 
+## File selection
+
+In a Git worktree, Tier 1 linters check tracked files and untracked
+files not excluded by Git ignore rules. Tracked files remain checked
+even when an ignore rule matches them. In non-Git directories, Tier 1
+scans files directly. Dependency and vendored directories remain
+excluded in both modes.
+
 ## Supply chain
 
 All npm packages are invoked via `npx --yes` with pinned versions. GitHub

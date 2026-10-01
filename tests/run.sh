@@ -179,6 +179,55 @@ else
         "$FIXTURES/broken-shell" --skip "json,yaml,markdown,python,claude,gemini,pi,codex,opencode,crosscheck,skills"
 fi
 
+# --- Gitignore-aware Tier 1 discovery ---
+test_gitignore_lint_discovery() {
+    local tmpdir plain md_skip sh_skip
+    tmpdir=$(mktemp -d)
+    plain=$(mktemp -d)
+    trap 'rm -rf "$tmpdir" "$plain"' RETURN
+
+    md_skip="json,yaml,shell,python,claude,gemini,pi,codex,opencode,crosscheck,skills"
+    sh_skip="json,yaml,markdown,python,claude,gemini,pi,codex,opencode,crosscheck,skills"
+
+    git -C "$tmpdir" init -q
+    printf 'ignored/\n' > "$tmpdir/.gitignore"
+    mkdir -p "$tmpdir/ignored"
+    cp "$FIXTURES/broken-markdown/bad.md" "$tmpdir/ignored/bad.md"
+    cp "$FIXTURES/broken-shell/bad.sh" "$tmpdir/ignored/bad.sh"
+    cp "$FIXTURES/broken-json/bad.json" "$tmpdir/ignored/bad.json"
+    cp "$FIXTURES/broken-yaml/bad.yml" "$tmpdir/ignored/bad.yml"
+    cp "$FIXTURES/broken-python/bad.py" "$tmpdir/ignored/bad.py"
+
+    assert_pass "gitignore: ignored markdown skipped" \
+        "$tmpdir" --skip "$md_skip"
+
+    if command -v shellcheck >/dev/null 2>&1; then
+        assert_pass "gitignore: ignored shell skipped" \
+            "$tmpdir" --skip "$sh_skip"
+    fi
+
+    assert_pass "gitignore: ignored JSON skipped" \
+        "$tmpdir" --skip "yaml,markdown,shell,python,claude,gemini,pi,codex,opencode,crosscheck,skills"
+    assert_pass "gitignore: ignored YAML skipped" \
+        "$tmpdir" --skip "json,markdown,shell,python,claude,gemini,pi,codex,opencode,crosscheck,skills"
+    assert_pass "gitignore: ignored Python skipped" \
+        "$tmpdir" --skip "json,yaml,markdown,shell,claude,gemini,pi,codex,opencode,crosscheck,skills"
+
+    cp "$FIXTURES/broken-markdown/bad.md" "$tmpdir/new.md"
+    assert_fail "gitignore: unignored untracked markdown checked" \
+        "$tmpdir" --skip "$md_skip"
+    rm "$tmpdir/new.md"
+
+    git -C "$tmpdir" add -f ignored/bad.md
+    assert_fail "gitignore: tracked ignored markdown checked" \
+        "$tmpdir" --skip "$md_skip"
+
+    cp "$FIXTURES/broken-markdown/bad.md" "$plain/bad.md"
+    assert_fail "gitignore: non-Git directory still checked" \
+        "$plain" --skip "$md_skip"
+}
+test_gitignore_lint_discovery
+
 # --- Fixture: broken-python ---
 assert_fail "broken-python: ruff catches syntax error" \
     "$FIXTURES/broken-python" --skip "json,yaml,markdown,shell,claude,gemini,pi,codex,opencode,crosscheck,skills"

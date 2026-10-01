@@ -210,14 +210,44 @@ fi
 # --- State ---
 errors=0
 
+# Use Git's ignore rules for lint inputs when possible. Tracked files remain
+# included even if a later ignore rule matches them; non-Git targets use find.
+list_lint_files() {
+    local file
+
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        while IFS= read -r -d '' file; do
+            case "/$file" in
+                */node_modules/*|*/.venv/*|*/site-packages/*|*/vendor/*)
+                    continue
+                    ;;
+            esac
+            if [[ -f "$file" ]]; then
+                printf './%s\0' "$file"
+            fi
+        done < <(git ls-files -z --cached --others --exclude-standard)
+    else
+        find -P . -not -path './.git/*' \
+            -not -path './node_modules/*' \
+            -not -path './.venv/*' \
+            -not -path '*/site-packages/*' \
+            -not -path '*/vendor/*' -print0 |
+            while IFS= read -r -d '' file; do
+                if [[ -f "$file" ]]; then
+                    printf '%s\0' "$file"
+                fi
+            done
+    fi
+}
+
 # --- Tier 1: Generic linting ---
 
 if ! should_skip "json"; then
     info "=== Validating JSON ==="
     json_files=()
     while IFS= read -r -d '' f; do
-        json_files+=("$f")
-    done < <(find -P . -name "*.json" -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.venv/*" -not -path "*/site-packages/*" -not -path "*/vendor/*" -print0)
+        case "$f" in *.json) json_files+=("$f") ;; esac
+    done < <(list_lint_files)
     if [[ ${#json_files[@]} -gt 0 ]]; then
         printf '%s\0' "${json_files[@]}" | xargs -0 -n1 npx --yes "jsonlint-mod@${JSONLINT_VERSION}" -q || errors=$((errors + 1))
     else
@@ -229,8 +259,8 @@ if ! should_skip "yaml"; then
     info "=== Validating YAML ==="
     yaml_files=()
     while IFS= read -r -d '' f; do
-        yaml_files+=("$f")
-    done < <(find -P . \( -name "*.yml" -o -name "*.yaml" \) -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.venv/*" -not -path "*/site-packages/*" -not -path "*/vendor/*" -print0)
+        case "$f" in *.yml|*.yaml) yaml_files+=("$f") ;; esac
+    done < <(list_lint_files)
     if [[ ${#yaml_files[@]} -gt 0 ]]; then
         # Use system yamllint if available (e.g. pip install in CI), otherwise uvx
         yamllint_cmd=(uvx "yamllint@${YAMLLINT_VERSION}")
@@ -246,9 +276,16 @@ fi
 
 if ! should_skip "markdown"; then
     info "=== Validating Markdown ==="
-    npx --yes "markdownlint-cli@${MARKDOWNLINT_VERSION}" '**/*.md' \
-        --ignore node_modules --ignore '**/vendor/**' \
-        ${markdownlint_config_args[@]+"${markdownlint_config_args[@]}"} || errors=$((errors + 1))
+    markdown_files=()
+    while IFS= read -r -d '' f; do
+        case "$f" in *.md) markdown_files+=("$f") ;; esac
+    done < <(list_lint_files)
+    if [[ ${#markdown_files[@]} -gt 0 ]]; then
+        printf '%s\0' "${markdown_files[@]}" | xargs -0 npx --yes "markdownlint-cli@${MARKDOWNLINT_VERSION}" \
+            ${markdownlint_config_args[@]+"${markdownlint_config_args[@]}"} || errors=$((errors + 1))
+    else
+        info "No Markdown files found, skipping"
+    fi
 fi
 
 if ! should_skip "shell"; then
@@ -258,8 +295,8 @@ if ! should_skip "shell"; then
         info "=== Validating Shell ==="
         shell_files=()
         while IFS= read -r -d '' f; do
-            shell_files+=("$f")
-        done < <(find -P . -name "*.sh" -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.venv/*" -not -path "*/vendor/*" -print0)
+            case "$f" in *.sh) shell_files+=("$f") ;; esac
+        done < <(list_lint_files)
         if [[ ${#shell_files[@]} -gt 0 ]]; then
             printf '%s\0' "${shell_files[@]}" | xargs -0 shellcheck || errors=$((errors + 1))
         else
@@ -272,8 +309,8 @@ if ! should_skip "python"; then
     info "=== Validating Python ==="
     py_files=()
     while IFS= read -r -d '' f; do
-        py_files+=("$f")
-    done < <(find -P . -name "*.py" -not -path "./.git/*" -not -path "./node_modules/*" -not -path "./.venv/*" -not -path "*/site-packages/*" -not -path "*/vendor/*" -print0)
+        case "$f" in *.py) py_files+=("$f") ;; esac
+    done < <(list_lint_files)
     if [[ ${#py_files[@]} -gt 0 ]]; then
         # Use system ruff if available, otherwise uvx
         ruff_cmd=(uvx "ruff@${RUFF_VERSION}")
